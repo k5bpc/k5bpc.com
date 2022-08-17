@@ -1,0 +1,203 @@
+UNIX
+ONE-LINER TO CHECK FIBRE CHANNEL HBA WWN ON AIX
+DECEMBER 19, 2016
+Here is a quick little one-liner I wrote to check the World Wide Names on an AIX box. I didnt think it was much, but one of our consultants got really excited about it, so I thought I might share it here.
+
+for i in `lsdev -Cc adapter | grep fcs | cut -d ‘ ‘ -f 1`; do printf ${i}; lscfg -vl ${i} | grep Network; done
+
+Enjoy!
+
+–Brian
+
+UNIX
+EMC POWERMT ON AIX
+NOVEMBER 19, 2016
+Display all paths to storage:
+
+powermt display dev=all
+
+Force dead paths to come back to life:
+
+cfgmgr
+
+Check paths after a change (remove dead path, bring in new path)
+
+powermt check
+
+To bring paths back from the dead that have been restored:
+
+powermt restore
+
+HPUX, UNIX
+HPUX CLOCK DRIFT AND TRICKS FOR ORACLE
+SEPTEMBER 15, 2016
+Problem: HPUX clock drifts. You cant just change it to the right time, for fear of breaking Oracle. Databases don’t like when the time jumps forward, and jumping back with the clock running is a definite no.
+
+Some Oracle sites suggest that to fix the time, you need to stop the DB, fix the time, and start it back up again. Hardly a viable solution on a prod box, unless you love working on Sunday. With HPUX, there is an easier way.
+
+First, validate that NTP is not enabled. If it is, you have bigger problems that need fixed first. The following command should only produce one line of output:
+
+ps -ef | grep xntpd
+
+Ok…. so NTP isnt running. The date command on HPUX can fix the time by intentionally drifting the clock by any number of seconds. For example, to drift the clock forward two minute:
+
+date -a 120
+
+Or to move it back two minutes:
+
+date -a -120
+
+The system clock will speed up or slow down until the desired change has occurred. This has the advantage of not negatively impacting Oracle or other databases.
+
+A handy little one-liner to help you adjust things by eyeballing the current time:
+
+while [ true ]; do date; sleep 1; clear; done
+
+Now that you have the time fixed, consider setting up NTP so you don’t have to do it again.
+
+http://k5bpc.com/2016/09/13/short-and-sweet-ntp-configuration-for-hpux/
+
+HPUX, UNIX
+SHORT AND SWEET NTP CONFIGURATION FOR HPUX
+SEPTEMBER 13, 2016
+Our requirement is for Unix to get time from Windows Domain controllers.  This is not the most accurate time source in the world, but to do anything else could cause drift between windows and Unix.
+
+This is for my reference.  For much more detailed instruction, check out Greg Porters blog post:  http://greg.porter.name/wordpress/?p=496
+
+IP addresses are made up.  Use your own, or this wont work.  If you don’t know what addresses to use, your going to need a much better tutorial than I care to write.  This could be improved by adding peers.
+
+Under xntp configuration section of:
+vi /etc/rc.config.d/netdaemons
+
+export NTPDATE_SERVER=’192.168.10.10 192.168.10.11′
+export XNTPD=1
+export XNTPD_ARGS=
+
+Validate that timezone is correct. Ill shown mine as an example, which is Central time:
+
+vi /etc/TIMEZONE
+
+TZ=CST6CDT
+export TZ
+
+Define servers, driftfiles, and peers in ntp.cofn:
+
+vi /etc/ntp.conf
+
+server 192.168.10.10
+server 192.168.10.11
+driftfile /etc/ntp.drift
+
+Start the service:
+
+/sbin/init.d/xntpd start
+
+Validate:
+
+ntpq -p
+ps -ef | grep xntpd
+
+Error Logs:
+
+tail -f /var/adm/syslog/syslog.log
+
+ 
+
+HPUX, UNIX
+WORKING WITH HPUX UNIX LVM STORAGE
+MARCH 15, 2016
+Here is my understanding as I learn about HPUX Storage. These notes will be updated as I continue to learn.
+
+I do not call myself an expert yet, so don’t expect any of this information to be useful. This is a selfish post to help myself in the future. If it helps you too, fantastic…. but if you don’t understand LVM concepts and you blindly execute these commands without understanding them, you will break things.
+
+Adding space to a filesystem:
+
+You will calculate the amount of space you need. First check the extent size. Take the size you desire, and divide by the extent size in MB to find the number of extents you need to add using the lvextend command.
+
+If the extent size is 16mb, and the arch filesystem is at /dev/vg100/lvol8, these commands will bring the /arch volume to 50GB in size.
+
+bdf
+vgdisplay
+vgdisplay -v
+swlist -l product | grep -i online
+lvdisplay -v /dev/vg100/lvol8
+lvextend -l 1000 /dev/vg100/lvol8
+extendfs /dev/vg100/lvol8 # If the file system is unmounted
+fsadm -b 50048000 /arch # If the file system is mounted and you have jfs online
+
+Add Physical Volumes to a volume group:
+
+If you need more Physical Extents in a volume group, you will need to add another Physical Volume to the group, or grow the underlying LUN.  Here is how to add more Physical Volumes.
+
+Check what luns are not part of a volume group:
+
+for i in `ioscan -f -n -N -C disk | grep /dev/disk | tr -s " " | cut -d ' ' -f 2`; do pvdisplay $i; done
+
+You might also just check what drives where added today:
+
+ls -la /dev/disk
+
+Add one of these new luns to an existing volume group:
+
+Prepare the disk for LVM:
+
+pvcreate /dev/rdisk/disk666
+
+Add it to VG:
+
+vgextend vg500 /dev/disk/disk666
+
+ 
+
+Add a volume group to the box :
+
+First ask yourself… Is this the right thing to do? Or should I extend one that I already have?  -s sets the PV size, or you can omit it to leave it default.
+
+vgcreate -s 64 vg500 /dev/disk/disk157
+
+ 
+
+Add a filesystem to the box:
+lvdisplay -v vg100
+lvdisplay /dev/vg100
+ls /dev/vg100
+cat /etc/fstab
+bdf
+lvdisplay
+lvcreate -L 204800 -n lvol22 /dev/vg100/
+newfs -F vxfs /dev/vg100/rlvol22
+mkdir /oradata14
+mount /dev/vg100/lvol22 /oradata14
+bdf
+
+HAM RADIO, LINUX, SOFTWARE
+PORTABLE SDR
+MARCH 14, 2016
+I am not endorsing or backing this kickstarter yet, but I do want to keep an eye on it, and may make a small contribution. It looks Very interesting.
+
+https://www.kickstarter.com/projects/1703258614/psdr-pocket-hf-sdr-transceiver-with-vna-and-gps
+
+Basically, its an open source, handheld SDR. I think this is exactly the type of thing the HAM radio community needs more of. This device can demodulate and modulate the HF bands. It can’t transmit on its own. Hopefully, it will mature to be able to do so with future hardware revisions.
+
+LINUX, SOFTWARE
+LEARN TO WRITE SOFTWARE
+JULY 16, 2015
+This post is just a reminder to myself and anybody else interested in learning to write software, to get back to https://www.codecademy.com/
+
+HAM RADIO
+ANTENNA ANALYZERS
+JUNE 25, 2015
+Looking at Antenna Analyzers for the club. At this point, I think our best bet would be Rigexpert AA-1400, with a runner up of Minivna Tiny.
+
+PITTSBURGH AREA CLUBS
+PITTSBURGH AREA CLUBS
+JUNE 21, 2015
+I will be adding links to Pittsburgh Area clubs to the site for reference.
+
+In order to be listed, a club must meet the following requirements:
+
+1:  The club must be active, and is in Allegheny County or one of its boarder counties.
+
+2:  I must have personally spoken with at least one member of the club to verify that it is active.
+
+Where possible, I am visiting these clubs to encourage inter-club communication and collaboration.  If your club isn’t listed here, its either because I don’t know about it, or haven’t talked to anyone in the club yet.  Why not visit me at W3KWH on one of our social nights, or shoot me an email to touch base?  You can reach me at my call @arrl.net.
